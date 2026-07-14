@@ -5,6 +5,7 @@ The fixture and assertion style follows tests/test_collection.py.
 """
 
 import pytest
+from datetime import datetime, timedelta, timezone
 
 from app import create_app, db
 from models import Film, User, WatchlistEntry
@@ -12,6 +13,7 @@ from services.watchlist_service import (
     AlreadyInWatchlistError,
     FilmNotFoundError,
     add_to_watchlist,
+    get_watchlist,
 )
 
 
@@ -87,3 +89,30 @@ def test_add_to_watchlist_nonexistent_film_raises(app, sample_user):
 
         with pytest.raises(FilmNotFoundError):
             add_to_watchlist(user_id=sample_user, film_id=fake_film_id)
+
+
+def test_get_watchlist_returns_newest_first(app, sample_user):
+    """Watchlist order follows the date-added design decision."""
+    with app.app_context():
+        earlier = datetime.now(timezone.utc) - timedelta(days=5)
+        later = datetime.now(timezone.utc)
+        film_a = Film(title="Alien", year=1979, genre="Horror")
+        film_b = Film(title="Blade Runner", year=1982, genre="Sci-Fi")
+        db.session.add_all([film_a, film_b])
+        db.session.commit()
+
+        db.session.add_all(
+            [
+                WatchlistEntry(
+                    user_id=sample_user, film_id=film_a.id, date_added=earlier
+                ),
+                WatchlistEntry(
+                    user_id=sample_user, film_id=film_b.id, date_added=later
+                ),
+            ]
+        )
+        db.session.commit()
+
+        titles = [film["title"] for film in get_watchlist(sample_user)]
+
+        assert titles == ["Blade Runner", "Alien"]
